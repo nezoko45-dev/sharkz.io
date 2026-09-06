@@ -2,10 +2,10 @@
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// Shared shark artwork. The source is a JPEG, so we make a small transparent
-// cached version once instead of doing full-resolution pixel processing every frame.
+// Shared shark artwork. images (2).jpg is processed once at a small size so the
+// white thumbnail/background is removed without freezing the game.
 const sharkImage = new Image();
-sharkImage.src = 'images%20(1).jpg';
+sharkImage.src = 'images%20(2).jpg';
 const sharkSprite = document.createElement('canvas');
 const sharkSpriteCtx = sharkSprite.getContext('2d');
 let sharkSpriteReady = false;
@@ -24,40 +24,42 @@ function prepareSharkSprite() {
   sharkSpriteCtx.clearRect(0, 0, w, h);
   sharkSpriteCtx.drawImage(sharkImage, 0, 0, w, h);
 
-  // Flood-fill only the connected background from the edges. Processing the
-  // capped 256px image keeps startup fast and prevents the previous freeze.
   const img = sharkSpriteCtx.getImageData(0, 0, w, h);
   const p = img.data;
-  const samples = [];
-  const sample = (x, y) => { const i=(y*w+x)*4; samples.push([p[i],p[i+1],p[i+2]]); };
-  for(let x=0;x<w;x+=Math.max(1,Math.floor(w/32))){sample(x,0);sample(x,h-1);}
-  for(let y=0;y<h;y+=Math.max(1,Math.floor(h/32))){sample(0,y);sample(w-1,y);}
-  const avg = samples.reduce((a,s)=>[a[0]+s[0],a[1]+s[1],a[2]+s[2]],[0,0,0]).map(v=>v/samples.length);
-  const seen = new Uint8Array(w*h);
-  const queue = new Int32Array(w*h);
-  let head=0, tail=0;
-  const tolerance=68;
-  const closeToWater=(n)=>{
-    const i=n*4, dr=p[i]-avg[0], dg=p[i+1]-avg[1], db=p[i+2]-avg[2];
-    return dr*dr+dg*dg+db*db <= tolerance*tolerance;
+
+  // Remove only the connected white thumbnail/background. Starting from the
+  // edges prevents white parts inside the shark artwork from being removed.
+  const seen = new Uint8Array(w * h);
+  const queue = new Int32Array(w * h);
+  let head = 0, tail = 0;
+  const whiteTolerance = 52;
+  const isWhiteBackground = (n) => {
+    const i = n * 4;
+    const r = p[i], g = p[i + 1], b = p[i + 2];
+    const min = Math.min(r, g, b), max = Math.max(r, g, b);
+    return min >= 255 - whiteTolerance && (max - min) <= 18;
   };
-  const add=(x,y)=>{
-    if(x<0||y<0||x>=w||y>=h)return;
-    const n=y*w+x;
-    if(seen[n]||!closeToWater(n))return;
-    seen[n]=1; queue[tail++]=n;
+  const add = (x, y) => {
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const n = y * w + x;
+    if (seen[n] || !isWhiteBackground(n)) return;
+    seen[n] = 1;
+    queue[tail++] = n;
   };
-  for(let x=0;x<w;x++){add(x,0);add(x,h-1);}
-  for(let y=0;y<h;y++){add(0,y);add(w-1,y);}
-  while(head<tail){
-    const n=queue[head++], x=n%w, y=(n/w)|0;
-    p[n*4+3]=0;
-    add(x+1,y);add(x-1,y);add(x,y+1);add(x,y-1);
+  for (let x = 0; x < w; x++) { add(x, 0); add(x, h - 1); }
+  for (let y = 0; y < h; y++) { add(0, y); add(w - 1, y); }
+
+  while (head < tail) {
+    const n = queue[head++];
+    const x = n % w, y = (n / w) | 0;
+    p[n * 4 + 3] = 0;
+    add(x + 1, y); add(x - 1, y); add(x, y + 1); add(x, y - 1);
   }
-  sharkSpriteCtx.putImageData(img,0,0);
-  sharkSpriteReady=true;
+
+  sharkSpriteCtx.putImageData(img, 0, 0);
+  sharkSpriteReady = true;
 }
-sharkImage.onload=prepareSharkSprite;
+sharkImage.onload = prepareSharkSprite;
 
 function resize(){canvas.width=window.innerWidth;canvas.height=window.innerHeight;}
 window.addEventListener('resize',resize);resize();
@@ -87,7 +89,6 @@ class Food extends Entity{
 function drawSharkSprite(x,y,angle,size,alpha=1){
  ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.globalAlpha=alpha;
  if(sharkSpriteReady){
-   // size is the desired shark length; preserve the source image aspect ratio.
    const w=size, h=size/sharkAspect;
    ctx.drawImage(sharkSprite,-w/2,-h/2,w,h);
  }else{
@@ -101,7 +102,6 @@ class BabyShark extends Entity{
  update(dt){
   if(!this.parent||game.over)return;
   let tx=this.parent.x,ty=this.parent.y,best=null,bd=230;
-  // Limit the scan so a large food list cannot monopolize a frame.
   const limit=Math.min(foods.length,250);
   for(let i=0;i<limit;i++){const f=foods[i],d=dist(this,f);if(d<bd){bd=d;best=f;}}
   if(best){tx=best.x;ty=best.y;}else{tx+=Math.cos(this.angle)*25;ty+=Math.sin(this.angle)*25;}
