@@ -47,8 +47,8 @@ class Coral extends Entity{
 }
 const corals=[];for(let i=0;i<34;i++)corals.push(new Coral());
 
-// Grid A*: sharks use this navigation mesh to weave around coral instead of
-// swimming directly through it. The grid is intentionally coarse for speed.
+// Grid A*: AI sharks and AI predators use this navigation mesh to weave around coral.
+// The player shark never uses A* and never moves from the center.
 const NAV_CELL=100,NAV_W=Math.ceil(world.width/NAV_CELL),NAV_H=Math.ceil(world.height/NAV_CELL),navBlocked=new Uint8Array(NAV_W*NAV_H);
 const navIndex=(x,y)=>y*NAV_W+x;
 function markNavObstacles(){navBlocked.fill(0);for(let y=0;y<NAV_H;y++)for(let x=0;x<NAV_W;x++){const cx=x*NAV_CELL+50,cy=y*NAV_CELL+50;for(const c of corals){const rr=c.r+42;if((cx-c.x)**2+(cy-c.y)**2<rr*rr){navBlocked[navIndex(x,y)]=1;break;}}}}
@@ -80,15 +80,33 @@ class Shark extends Entity{
  attack(target){if(this.attackCooldown>0||!target||target.dead||target.health<=0)return false;if(dist(this,target)>this.r+target.r+45)return false;target.health-=Math.max(12,this.size*.65);this.attackCooldown=.48;this.bite=.22;if(target.health<=0){this.grow(target.weight*.16);this.xp+=Math.max(2,Math.floor(target.weight/8));target.dead=true;}return true;}
  update(dt){
   this.attackCooldown=Math.max(0,this.attackCooldown-dt);
-  if(this.player){const wx=mouse.x-canvas.width/2+camera.x,wy=mouse.y-canvas.height/2+camera.y,dx=wx-this.x,dy=wy-this.y,d=Math.hypot(dx,dy)||1,boosting=mouse.down&&this.energy>1,sp=boosting?280:180;this.vx+=(dx/d*sp-this.vx)*Math.min(1,dt*4);this.vy+=(dy/d*sp-this.vy)*Math.min(1,dt*4);this.energy=clamp(this.energy+(boosting?-28:15)*dt,0,100);if(Math.abs(this.vx)+Math.abs(this.vy)>2)this.angle=Math.atan2(this.vy,this.vx);if(mouse.down)this.bite=.18;for(const s of sharks)if(s!==this&&!s.dead&&dist(this,s)<this.r+s.r+45)this.attack(s);}
-  else{let target=player,best=Infinity;for(let i=0;i<Math.min(foods.length,300);i++){const f=foods[i],d=dist(this,f);if(d<best){best=d;target=f;}}const pd=dist(this,player);if(this.weight>player.weight*1.08&&pd<700){target=player;best=pd;}navigate(this,target,dt,this.speed);if(Math.abs(this.vx)+Math.abs(this.vy)>2)this.angle=Math.atan2(this.vy,this.vx);if(target===player&&pd<this.r+player.r+45)this.attack(player);}
-  this.bite=Math.max(0,this.bite-dt);this.move(dt);for(const b of this.babies)b.update(dt);
+  if(this.player){
+   // The player is permanently centered. Mouse controls facing only.
+   this.x=world.width/2;this.y=world.height/2;this.vx=0;this.vy=0;
+   const dx=mouse.x-canvas.width/2,dy=mouse.y-canvas.height/2;
+   if(Math.abs(dx)+Math.abs(dy)>1)this.angle=Math.atan2(dy,dx);
+   this.energy=clamp(this.energy+15*dt,0,100);
+   if(mouse.down){this.bite=.18;for(const s of sharks)if(s!==this&&!s.dead&&dist(this,s)<this.r+s.r+45)this.attack(s);}
+  }else{
+   let target=player,best=Infinity;
+   for(let i=0;i<Math.min(foods.length,300);i++){const f=foods[i],d=dist(this,f);if(d<best){best=d;target=f;}}
+   const pd=dist(this,player);
+   if(this.weight>player.weight*1.08&&pd<700){target=player;best=pd;}
+   // Only AI sharks use A* navigation.
+   navigate(this,target,dt,this.speed);
+   if(Math.abs(this.vx)+Math.abs(this.vy)>2)this.angle=Math.atan2(this.vy,this.vx);
+   if(target===player&&pd<this.r+player.r+45)this.attack(player);
+  }
+  this.bite=Math.max(0,this.bite-dt);
+  if(!this.player)this.move(dt);
+  for(const b of this.babies)b.update(dt);
  }
  draw(c){drawSharkSprite(this.x-c.x,this.y-c.y,this.angle,Math.max(38,this.size*2));}
 }
 
 class Squid extends Entity{constructor(){super(rand(100,3900),rand(100,3900),rand(25,45));this.a=rand(0,6.28);}update(dt){this.a+=dt*.3;this.vx=Math.cos(this.a)*25;this.vy=Math.sin(this.a)*25;this.move(dt);}draw(c){const x=this.x-c.x,y=this.y-c.y;ctx.fillStyle='#9b63b6';ctx.beginPath();ctx.ellipse(x,y,this.r,this.r*.6,0,0,Math.PI*2);ctx.fill();}}
-class Predator extends Entity{constructor(type){super(rand(100,3900),rand(100,3900),type==='hammerhead'?26:16);this.type=type;this.a=rand(0,6.28);this.speed=rand(50,80);}update(dt){if(this.type==='hammerhead'){const dx=player.x-this.x,dy=player.y-this.y,d=Math.hypot(dx,dy)||1;this.vx=dx/d*this.speed;this.vy=dy/d*this.speed;this.a=Math.atan2(this.vy,this.vx);}else{this.a+=Math.sin(performance.now()/1000)*dt;this.vx=Math.cos(this.a)*this.speed;this.vy=Math.sin(this.a)*this.speed;}this.move(dt);}draw(c){const x=this.x-c.x,y=this.y-c.y;ctx.save();ctx.translate(x,y);ctx.rotate(this.a);ctx.fillStyle=this.type==='hammerhead'?'#6e7478':'#b74d61';ctx.beginPath();ctx.ellipse(0,0,this.r,this.r*.45,0,0,Math.PI*2);ctx.fill();ctx.restore();}}
+class Predator extends Entity{constructor(type){super(rand(100,3900),rand(100,3900),type==='hammerhead'?26:16);this.type=type;this.a=rand(0,6.28);this.speed=rand(50,80);this.path=[];this.pathIndex=0;this.pathTime=0;this.pathTarget=null;}update(dt){if(this.type==='hammerhead'){// AI predator also uses A* to reach the centered player without cutting through coral.
+navigate(this,player,dt,this.speed);this.a=Math.atan2(this.vy,this.vx);}else{this.a+=Math.sin(performance.now()/1000)*dt;this.vx=Math.cos(this.a)*this.speed;this.vy=Math.sin(this.a)*this.speed;}this.move(dt);}draw(c){const x=this.x-c.x,y=this.y-c.y;ctx.save();ctx.translate(x,y);ctx.rotate(this.a);ctx.fillStyle=this.type==='hammerhead'?'#6e7478':'#b74d61';ctx.beginPath();ctx.ellipse(0,0,this.r,this.r*.45,0,0,Math.PI*2);ctx.fill();ctx.restore();}}
 
 const foods=[];for(let i=0;i<650;i++)foods.push(new Food());
 const sharks=[];for(let i=0;i<55;i++)sharks.push(new Shark(false));
@@ -105,7 +123,7 @@ function eatCollisions(){
  for(let i=sharks.length-1;i>=0;i--)if(sharks[i].dead&&sharks[i]!==player)sharks.splice(i,1);
  if(player.health<=0)game.over=true;
 }
-function drawWorld(){ctx.fillStyle='#06283a';ctx.fillRect(0,0,canvas.width,canvas.height);camera.x=clamp(player.x-canvas.width/2,0,Math.max(0,world.width-canvas.width));camera.y=clamp(player.y-canvas.height/2,0,Math.max(0,world.height-canvas.height));ctx.save();ctx.strokeStyle='rgba(100,210,230,.07)';ctx.lineWidth=1;const grid=100;for(let x=Math.floor(camera.x/grid)*grid;x<camera.x+canvas.width+grid;x+=grid){ctx.beginPath();ctx.moveTo(x-camera.x,0);ctx.lineTo(x-camera.x,canvas.height);ctx.stroke();}for(let y=Math.floor(camera.y/grid)*grid;y<camera.y+canvas.height+grid;y+=grid){ctx.beginPath();ctx.moveTo(0,y-camera.y);ctx.lineTo(canvas.width,y-camera.y);ctx.stroke();}for(const c of corals)if(c.x+c.r>camera.x&&c.x-c.r<camera.x+canvas.width&&c.y+c.r>camera.y&&c.y-c.r<camera.y+canvas.height)c.draw(camera);for(const f of foods)if(f.x>camera.x-20&&f.x<camera.x+canvas.width+20&&f.y>camera.y-20&&f.y<camera.y+canvas.height+20)f.draw(camera);for(const s of sharks)if(!s.dead&&s.x+s.r>camera.x&&s.x-s.r<camera.x+canvas.width&&s.y+s.r>camera.y&&s.y-s.r<camera.y+canvas.height)s.draw(camera);for(const p of predators)if(p.x+p.r>camera.x&&p.x-p.r<camera.x+canvas.width&&p.y+p.r>camera.y&&p.y-p.r<camera.y+canvas.height)p.draw(camera);for(const q of squids)if(q.x+q.r>camera.x&&q.x-q.r<camera.x+canvas.width&&q.y+q.r>camera.y&&q.y-q.r<camera.y+canvas.height)q.draw(camera);ctx.restore();}
+function drawWorld(){ctx.fillStyle='#06283a';ctx.fillRect(0,0,canvas.width,canvas.height);camera.x=world.width/2-canvas.width/2;camera.y=world.height/2-canvas.height/2;ctx.save();ctx.strokeStyle='rgba(100,210,230,.07)';ctx.lineWidth=1;const grid=100;for(let x=Math.floor(camera.x/grid)*grid;x<camera.x+canvas.width+grid;x+=grid){ctx.beginPath();ctx.moveTo(x-camera.x,0);ctx.lineTo(x-camera.x,canvas.height);ctx.stroke();}for(let y=Math.floor(camera.y/grid)*grid;y<camera.y+canvas.height+grid;y+=grid){ctx.beginPath();ctx.moveTo(0,y-camera.y);ctx.lineTo(canvas.width,y-camera.y);ctx.stroke();}for(const c of corals)if(c.x+c.r>camera.x&&c.x-c.r<camera.x+canvas.width&&c.y+c.r>camera.y&&c.y-c.r<camera.y+canvas.height)c.draw(camera);for(const f of foods)if(f.x>camera.x-20&&f.x<camera.x+canvas.width+20&&f.y>camera.y-20&&f.y<camera.y+canvas.height+20)f.draw(camera);for(const s of sharks)if(!s.dead&&s.x+s.r>camera.x&&s.x-s.r<camera.x+canvas.width&&s.y+s.r>camera.y&&s.y-s.r<camera.y+canvas.height)s.draw(camera);for(const p of predators)if(p.x+p.r>camera.x&&p.x-p.r<camera.x+canvas.width&&p.y+p.r>camera.y&&p.y-p.r<camera.y+canvas.height)p.draw(camera);for(const q of squids)if(q.x+q.r>camera.x&&q.x-q.r<camera.x+canvas.width&&q.y+q.r>camera.y&&q.y-q.r<camera.y+canvas.height)q.draw(camera);ctx.restore();}
 function updateHUD(){const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};set('score',Math.floor(player.weight));set('size',Math.floor(player.size));set('level',player.level);set('health',Math.max(0,Math.floor(player.health)));set('energy',Math.floor(player.energy));const hb=document.getElementById('healthFill');if(hb)hb.style.width=`${clamp(player.health/player.maxHealth*100,0,100)}%`;const eb=document.getElementById('energyFill');if(eb)eb.style.width=`${player.energy}%`;}
 function loop(now){const dt=Math.min(.033,(now-(loop.last||now))/1000);loop.last=now;if(!game.over){for(const f of foods)f.update(dt);for(const s of sharks)s.update(dt);for(const p of predators)p.update(dt);for(const q of squids)q.update(dt);eatCollisions();drawWorld();updateHUD();}else{drawWorld();const over=document.getElementById('gameOver');if(over)over.classList.remove('hidden');}requestAnimationFrame(loop);}
 requestAnimationFrame(loop);
