@@ -1,386 +1,51 @@
-(function () {
-    const canvas = document.getElementById('gameCanvas') || document.createElement('canvas');
-    if (!canvas.parentNode) document.body.appendChild(canvas);
-    const ctx = canvas.getContext('2d');
-
-    // UI elements fallback safety routing - FIXED SYNTAX HERE
-    const scoreEl = document.getElementById('score') || { set innerText(v){} };
-    const sizeEl = document.getElementById('shark-size') || { set innerText(v){} };
-    const leaderboardList = document.getElementById('leaderboard-list') || document.createElement('ol');
-    const gameOverScreen = document.getElementById('game-over-screen') || document.createElement('div');
-    const restartBtn = document.getElementById('restart-btn') || document.createElement('button');
-
-    function resizeCanvas() {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-    }
-    window.addEventListener('resize', resizeCanvas);
-    resizeCanvas();
-
-    const WORLD_SIZE = 4000; 
-    const TOTAL_SHARKS = 100; 
-    const MAX_FOOD = 600;
-    const TOTAL_PREDATORS = 25; 
-
-    let player;
-    let sharks = [];
-    let food = [];
-    let predators = [];
-    let babySharks = [];
-    let mouse = { x: 0, y: 0 };
-    let isGameOver = false;
-
-    window.addEventListener('mousemove', (e) => {
-        mouse.x = e.clientX - canvas.width / 2;
-        mouse.y = e.clientY - canvas.height / 2;
-    });
-
-    function randomRange(min, max) {
-        return Math.random() * (max - min) + min;
-    }
-
-    function getDistance(x1, y1, x2, y2) {
-        return Math.hypot(x2 - x1, y2 - y1);
-    }
-
-    class Food {
-        constructor() {
-            this.x = randomRange(0, WORLD_SIZE);
-            this.y = randomRange(0, WORLD_SIZE);
-            this.radius = randomRange(3, 6);
-            this.color = `hsl(${randomRange(140, 240)}, 100%, 60%)`;
-        }
-        draw(camX, camY) {
-            ctx.beginPath();
-            ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
-            ctx.fillStyle = this.color;
-            ctx.fill();
-            ctx.closePath();
-        }
-    }
-
-    class Shark {
-        constructor(x, y, isPlayer, name) {
-            this.x = x || randomRange(0, WORLD_SIZE);
-            this.y = y || randomRange(0, WORLD_SIZE);
-            this.radius = 20;
-            this.score = 0;
-            this.isPlayer = isPlayer;
-            this.name = name;
-            this.color = isPlayer ? '#00ffff' : '#557799';
-            this.speed = 4;
-            this.angle = randomRange(0, Math.PI * 2);
-            this.babyCooldown = 0;
-        }
-
-        update() {
-            if (this.babyCooldown > 0) this.babyCooldown--;
-
-            if (this.isPlayer) {
-                if (getDistance(0, 0, mouse.x, mouse.y) > 10) {
-                    this.angle = Math.atan2(mouse.y, mouse.x);
-                    this.x += Math.cos(this.angle) * this.speed;
-                    this.y += Math.sin(this.angle) * this.speed;
-                }
-            } else {
-                let nearestFood = null;
-                let minDist = 300;
-                for (let f of food) {
-                    let d = getDistance(this.x, this.y, f.x, f.y);
-                    if (d < minDist) { minDist = d; nearestFood = f; }
-                }
-                if (nearestFood) {
-                    this.angle = Math.atan2(nearestFood.y - this.y, nearestFood.x - this.x);
-                } else if (Math.random() < 0.02) {
-                    this.angle += randomRange(-1, 1);
-                }
-                this.x += Math.cos(this.angle) * (this.speed * 0.8);
-                this.y += Math.sin(this.angle) * (this.speed * 0.8);
-            }
-
-            this.x = Math.max(this.radius, Math.min(WORLD_SIZE - this.radius, this.x));
-            this.y = Math.max(this.radius, Math.min(WORLD_SIZE - this.radius, this.y));
-            this.speed = Math.max(2, 5 - (this.radius / 50));
-        }
-
-        draw(camX, camY) {
-            let screenX = this.x - camX;
-            let screenY = this.y - camY;
-            if (screenX < -100 || screenX > canvas.width + 100 || screenY < -100 || screenY > canvas.height + 100) return;
-
-            ctx.save();
-            ctx.translate(screenX, screenY);
-            ctx.rotate(this.angle);
-
-            ctx.beginPath();
-            ctx.ellipse(0, 0, this.radius * 1.5, this.radius, 0, 0, Math.PI * 2);
-            ctx.fillStyle = this.color;
-            ctx.fill();
-            ctx.lineWidth = 2;
-            ctx.strokeStyle = '#ffffff';
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.moveTo(-this.radius * 1.3, 0);
-            ctx.lineTo(-this.radius * 2, -this.radius * 0.6);
-            ctx.lineTo(-this.radius * 2, this.radius * 0.6);
-            ctx.closePath();
-            ctx.fillStyle = this.color;
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
-            ctx.arc(this.radius * 0.6, -this.radius * 0.4, 3, 0, Math.PI * 2);
-            ctx.arc(this.radius * 0.6, this.radius * 0.4, 3, 0, Math.PI * 2);
-            ctx.fillStyle = 'black';
-            ctx.fill();
-            ctx.restore();
-
-            ctx.fillStyle = 'white';
-            ctx.font = '12px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(`${this.name} (${Math.floor(this.radius)})`, screenX, screenY - this.radius - 5);
-        }
-
-        summonBaby(target) {
-            if (this.babyCooldown === 0) {
-                babySharks.push(new BabyShark(this, target));
-                this.babyCooldown = 120;
-            }
-        }
-    }
-
-    class Predator {
-        constructor() {
-            this.x = randomRange(0, WORLD_SIZE);
-            this.y = randomRange(0, WORLD_SIZE);
-            this.type = Math.random() > 0.5 ? 'Hammerhead' : 'Lamprey';
-            this.radius = this.type === 'Hammerhead' ? 45 : 30;
-            this.color = this.type === 'Hammerhead' ? '#444455' : '#773322';
-            this.speed = this.type === 'Hammerhead' ? 3.5 : 4.5;
-            this.angle = randomRange(0, Math.PI * 2);
-        }
-
-        update() {
-            let target = null;
-            let minDist = 500;
-            for (let shark of sharks) {
-                let d = getDistance(this.x, this.y, shark.x, shark.y);
-                if (d < minDist && shark.radius < this.radius) { minDist = d; target = shark; }
-            }
-            if (target) {
-                this.angle = Math.atan2(target.y - this.y, target.x - this.x);
-                if (minDist < 250) target.summonBaby(this);
-            } else if (Math.random() < 0.01) {
-                this.angle += randomRange(-1, 1);
-            }
-            this.x += Math.cos(this.angle) * this.speed;
-            this.y += Math.sin(this.angle) * this.speed;
-
-            if (this.x < 0 || this.x > WORLD_SIZE) this.angle = Math.PI - this.angle;
-            if (this.y < 0 || this.y > WORLD_SIZE) this.angle = -this.angle;
-        }
-
-        draw(camX, camY) {
-            let screenX = this.x - camX;
-            let screenY = this.y - camY;
-            if (screenX < -100 || screenX > canvas.width + 100 || screenY < -100 || screenY > canvas.height + 100) return;
-
-            ctx.save();
-            ctx.translate(screenX, screenY);
-            ctx.rotate(this.angle);
-
-            if (this.type === 'Hammerhead') {
-                ctx.fillStyle = this.color;
-                ctx.beginPath();
-                ctx.ellipse(0, 0, this.radius * 1.4, this.radius * 0.8, 0, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-                ctx.fillRect(this.radius * 0.8, -this.radius * 1.1, this.radius * 0.4, this.radius * 2.2);
-                ctx.strokeRect(this.radius * 0.8, -this.radius * 1.1, this.radius * 0.4, this.radius * 2.2);
-            } else {
-                ctx.fillStyle = this.color;
-                ctx.beginPath();
-                ctx.ellipse(0, 0, this.radius * 2, this.radius * 0.6, 0, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.stroke();
-            }
-            ctx.restore();
-            
-            ctx.fillStyle = '#ff3333';
-            ctx.font = 'bold 11px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText(this.type, screenX, screenY - this.radius - 5);
-        }
-    }
-
-    class BabyShark {
-        constructor(parent, target) {
-            this.x = parent.x;
-            this.y = parent.y;
-            this.parent = parent;
-            this.target = target;
-            this.radius = 8;
-            this.speed = 7; 
-            this.lifeSpan = 300; 
-            this.angle = parent.angle;
-        }
-
-        update() {
-            this.lifeSpan--;
-            if (!predators.includes(this.target) && !sharks.includes(this.target)) {
-                this.target = this.parent;
-            }
-            if (this.target) {
-                this.angle = Math.atan2(this.target.y - this.y, this.target.x - this.x);
-            }
-            this.x += Math.cos(this.angle) * this.speed;
-            this.y += Math.sin(this.angle) * this.speed;
-
-            if (this.target && this.target !== this.parent) {
-                if (getDistance(this.x, this.y, this.target.x, this.target.y) < this.target.radius) {
-                    this.target.radius = Math.max(15, this.target.radius - 1.5); 
-                    this.parent.score += 15;
-                    this.lifeSpan = 0; 
-                }
-            }
-        }
-
-        draw(camX, camY) {
-            ctx.beginPath();
-            ctx.arc(this.x - camX, this.y - camY, this.radius, 0, Math.PI * 2);
-            ctx.fillStyle = '#ffff00'; 
-            ctx.fill();
-            ctx.strokeStyle = '#fff';
-            ctx.stroke();
-            ctx.closePath();
-        }
-    }
-
-    function init() {
-        isGameOver = false;
-        if(gameOverScreen.classList) gameOverScreen.classList.add('hidden');
-        
-        player = new Shark(WORLD_SIZE / 2, WORLD_SIZE / 2, true, "You");
-        sharks = [player];
-
-        for (let i = 1; i < TOTAL_SHARKS; i++) {
-            sharks.push(new Shark(null, null, false, `Shark_${i}`));
-        }
-        predators = [];
-        for (let i = 0; i < TOTAL_PREDATORS; i++) {
-            predators.push(new Predator());
-        }
-        food = [];
-        for (let i = 0; i < MAX_FOOD; i++) {
-            food.push(new Food());
-        }
-        babySharks = [];
-    }
-
-    function gameLoop() {
-        if (isGameOver) return;
-
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        let camX = player.x - canvas.width / 2;
-        let camY = player.y - canvas.height / 2;
-
-        ctx.strokeStyle = '#002244';
-        ctx.lineWidth = 1;
-        const gridSize = 100;
-        for (let x = -camX % gridSize; x < canvas.width; x += gridSize) {
-            ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, canvas.height); ctx.stroke();
-        }
-        for (let y = -camY % gridSize; y < canvas.height; y += gridSize) {
-            ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
-        }
-
-        if (food.length < MAX_FOOD) food.push(new Food());
-        for (let i = food.length - 1; i >= 0; i--) {
-            food[i].draw(camX, camY);
-            for (let shark of sharks) {
-                if (getDistance(shark.x, shark.y, food[i].x, food[i].y) < shark.radius) {
-                    shark.radius += 0.2; 
-                    shark.score += 10;
-                    food.splice(i, 1);
-                    break;
-                }
-            }
-        }
-
-        for (let predator of predators) {
-            predator.update();
-            predator.draw(camX, camY);
-            for (let i = sharks.length - 1; i >= 0; i--) {
-                let shark = sharks[i];
-                if (getDistance(predator.x, predator.y, shark.x, shark.y) < predator.radius && predator.radius > shark.radius) {
-                    if (shark.isPlayer) endGame();
-                    else {
-                        sharks.splice(i, 1);
-                        sharks.push(new Shark(null, null, false, `Shark_${Math.floor(Math.random()*500)}`));
-                    }
-                }
-            }
-        }
-
-        for (let i = babySharks.length - 1; i >= 0; i--) {
-            babySharks[i].update();
-            if (babySharks[i].lifeSpan <= 0) babySharks.splice(i, 1);
-            else babySharks[i].draw(camX, camY);
-        }
-
-        for (let i = sharks.length - 1; i >= 0; i--) {
-            let s1 = sharks[i];
-            s1.update();
-            s1.draw(camX, camY);
-
-            for (let j = sharks.length - 1; j >= 0; j--) {
-                if (i === j) continue;
-                let s2 = sharks[j];
-                if (getDistance(s1.x, s1.y, s2.x, s2.y) < s1.radius && s1.radius > s2.radius * 1.1) {
-                    s1.radius += s2.radius * 0.15;
-                    s1.score += Math.floor(s2.score + 50);
-                    if (s2.isPlayer) endGame();
-                    else {
-                        sharks.splice(j, 1);
-                        sharks.push(new Shark(null, null, false, `Shark_${Math.floor(Math.random()*500)}`));
-                    }
-                }
-            }
-        }
-
-        if(scoreEl) scoreEl.innerText = Math.floor(player.score);
-        if(sizeEl) sizeEl.innerText = Math.floor(player.radius);
-        updateLeaderboard();
-
-        requestAnimationFrame(gameLoop);
-    }
-
-    function updateLeaderboard() {
-        let sorted = [...sharks].sort((a, b) => b.score - a.score).slice(0, 5);
-        if(leaderboardList) {
-            leaderboardList.innerHTML = '';
-            sorted.forEach(shark => {
-                let li = document.createElement('li');
-                li.innerText = `${shark.name}: ${Math.floor(shark.score)}`;
-                if (shark.isPlayer) li.style.color = '#00ffff';
-                leaderboardList.appendChild(li);
-            });
-        }
-    }
-
-    function endGame() {
-        isGameOver = true;
-        if(gameOverScreen.classList) gameOverScreen.classList.remove('hidden');
-    }
-
-    if(restartBtn) {
-        restartBtn.addEventListener('click', () => {
-            init();
-            gameLoop();
-        });
-    }
-
-    init();
-    gameLoop();
+(()=>{
+const C=document.getElementById('gameCanvas'),X=C.getContext('2d');
+const ui={score:document.getElementById('score'),level:document.getElementById('level'),weight:document.getElementById('weight'),health:document.getElementById('healthBar'),energy:document.getElementById('energyBar'),ht:document.getElementById('healthText'),et:document.getElementById('energyText'),board:document.getElementById('leaderboard-list'),up:document.getElementById('upgradePanel'),choices:document.getElementById('upgradeChoices'),over:document.getElementById('game-over-screen'),killer:document.getElementById('killerText'),finalScore:document.getElementById('finalScore'),finalLevel:document.getElementById('finalLevel'),restart:document.getElementById('restart-btn')};
+const W=7000, FISH_COUNT=260, AI_COUNT=42, PRED_COUNT=18, TAU=Math.PI*2;
+let mouse={x:0,y:0,down:false},player,fish=[],sharks=[],predators=[],swarms=[],bubbles=[],decor=[],running=false,last=0,level=1,nextLevel=120,paused=false;
+const names=['Bluefang','Jaws','Mako','Riptide','Brine','Hunter','Tooth','Abyss','Finley','Deepbite','Salt','Barracuda','Razor','Tide','Gnasher','Reef','Swell','Chomper','Blackfin','Whitecap'];
+function resize(){C.width=innerWidth*devicePixelRatio;C.height=innerHeight*devicePixelRatio;C.style.width=innerWidth+'px';C.style.height=innerHeight+'px';X.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0)}addEventListener('resize',resize);resize();
+addEventListener('mousemove',e=>{mouse.x=e.clientX-innerWidth/2;mouse.y=e.clientY-innerHeight/2});addEventListener('mousedown',()=>mouse.down=true);addEventListener('mouseup',()=>mouse.down=false);addEventListener('keydown',e=>{if(e.code==='Space'){mouse.down=true;e.preventDefault()}if(e.key==='1')chooseUpgrade(0);if(e.key==='2')chooseUpgrade(1);if(e.key==='3')chooseUpgrade(2)});addEventListener('keyup',e=>{if(e.code==='Space')mouse.down=false});
+const rnd=(a,b)=>Math.random()*(b-a)+a, dist=(a,b,c,d)=>Math.hypot(c-a,d-b), clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function pos(){return {x:rnd(100,W-100),y:rnd(100,W-100)}}
+class Fish{
+ constructor(){let p=pos();this.x=p.x;this.y=p.y;this.r=rnd(5,10);this.v=rnd(1.1,2.3);this.a=rnd(0,TAU);this.turn=rnd(.005,.02);this.hue=rnd(35,205);this.value=Math.ceil(this.r*2)}
+ update(){this.a+=rnd(-this.turn,this.turn);this.x+=Math.cos(this.a)*this.v;this.y+=Math.sin(this.a)*this.v;if(this.x<20||this.x>W-20)this.a=Math.PI-this.a;if(this.y<20||this.y>W-20)this.a=-this.a}
+ draw(cx,cy){let x=this.x-cx,y=this.y-cy;if(x<-30||x>innerWidth+30||y<-30||y>innerHeight+30)return;X.save();X.translate(x,y);X.rotate(this.a);X.fillStyle=`hsl(${this.hue},70%,62%)`;X.beginPath();X.ellipse(0,0,this.r*1.7,this.r,0,0,TAU);X.fill();X.beginPath();X.moveTo(-this.r,0);X.lineTo(-this.r*2,-this.r);X.lineTo(-this.r*2,this.r);X.closePath();X.fill();X.restore()}
+}
+class Shark{
+ constructor(x,y,r=34,name='Shark',me=false){this.x=x;this.y=y;this.r=r;this.name=name;this.me=me;this.a=0;this.speed=2.4;this.turn=0;this.score=0;this.health=100;this.maxHealth=100;this.energy=100;this.maxEnergy=100;this.bite=0;this.brut=1;this.regen=1;this.bitePower=1;this.swarmer=0;this.target=null;this.wander=rnd(0,TAU);this.hue=me?192:rnd(185,220)}
+ update(){
+  if(this.me){let want=Math.atan2(mouse.y,mouse.x),d=Math.hypot(mouse.x,mouse.y);let diff=Math.atan2(Math.sin(want-this.a),Math.cos(want-this.a));this.a+=diff*.14;let boost=mouse.down&&this.energy>3?1.65:1;this.speed=(1.9+Math.max(0,3.7-this.r*.012))*boost;if(boost>1)this.energy-=.85;else this.energy=Math.min(this.maxEnergy,this.energy+.28);if(this.bite>0)this.bite--;this.x+=Math.cos(this.a)*this.speed;this.y+=Math.sin(this.a)*this.speed}else{this.energy=Math.min(this.maxEnergy,this.energy+.25);if(this.bite>0)this.bite--;let t=this.target;if(!t||t.dead||dist(this.x,this.y,t.x,t.y)>700){t=null;let best=420;for(const f of fish){let d=dist(this.x,this.y,f.x,f.y);if(d<best){best=d;t=f}}for(const s of sharks){if(s!==this&&!s.dead&&s.r<this.r*.82){let d=dist(this.x,this.y,s.x,s.y);if(d<best){best=d;t=s}}}this.target=t}if(t){let a=Math.atan2(t.y-this.y,t.x-this.x),df=Math.atan2(Math.sin(a-this.a),Math.cos(a-this.a));this.a+=df*.045}else if(Math.random()<.015)this.wander+=rnd(-.6,.6);this.a+=Math.sin(this.wander)*.008;this.x+=Math.cos(this.a)*this.speed*.78;this.y+=Math.sin(this.a)*this.speed*.78}
+  this.x=clamp(this.x,this.r,W-this.r);this.y=clamp(this.y,this.r,W-this.r);this.health=Math.min(this.maxHealth,this.health+.006*this.regen)
+ }
+ draw(cx,cy){let sx=this.x-cx,sy=this.y-cy;if(sx<-180||sx>innerWidth+180||sy<-180||sy>innerHeight+180)return;X.save();X.translate(sx,sy);X.rotate(this.a);let r=this.r;X.fillStyle=this.me?'#42cde8':`hsl(${this.hue},42%,${42+Math.min(20,r/5)}%)`;X.beginPath();X.ellipse(0,0,r*1.65,r*.72,0,0,TAU);X.fill();X.beginPath();X.moveTo(-r*1.15,0);X.lineTo(-r*2,-r*.72);X.lineTo(-r*2,r*.72);X.closePath();X.fill();X.beginPath();X.moveTo(-r*.15,-r*.45);X.lineTo(-r*.05,-r*1.05);X.lineTo(r*.25,-r*.45);X.fillStyle='rgba(20,80,105,.9)';X.fill();X.fillStyle='#08151d';X.beginPath();X.arc(r*.75,-r*.28,Math.max(2,r*.08),0,TAU);X.fill();X.beginPath();X.arc(r*.75,r*.28,Math.max(2,r*.08),0,TAU);X.fill();if(this.bite>0){X.strokeStyle='rgba(255,255,255,.8)';X.lineWidth=2;X.beginPath();X.arc(r*.9,0,r*.38,-.75,.75);X.stroke()}X.restore();if(this.r>24){X.fillStyle='rgba(235,250,255,.75)';X.font='10px Arial';X.textAlign='center';X.fillText(this.me?'YOU':this.name,sx,sy-r-9)} }
+ biteAt(target){if(this.bite>0)return;this.bite=14;if(target&&target.r<this.r*1.18){let dmg=this.r*.22*this.bitePower;target.health-=dmg;target.r-=dmg*.035;this.score+=Math.round(dmg*3);if(target.health<=0||target.r<16){this.eat(target)}}}
+ eat(target){if(target instanceof Fish){let i=fish.indexOf(target);if(i>=0)fish.splice(i,1);this.score+=target.value*4;this.r+=target.value*.045;this.health=Math.min(this.maxHealth,this.health+5)}else if(target instanceof Shark){target.dead=true;target.health=0;this.score+=Math.round(target.r*8);this.r+=target.r*.075;this.health=Math.min(this.maxHealth,this.health+12)}else if(target.type){target.dead=true;this.score+=Math.round(target.r*7);this.r+=target.r*.04;this.health=Math.min(this.maxHealth,this.health+10)}}
+}
+class Predator{
+ constructor(type){let p=pos();this.x=p.x;this.y=p.y;this.type=type;this.r=type==='Hammerhead'?68:type==='Squid'?58:30;this.a=rnd(0,TAU);this.speed=type==='Hammerhead'?1.45:type==='Squid'?1.8:2.8;this.dead=false;this.health=100;this.target=null}
+ update(){if(this.dead)return;let best=550,t=null;for(const s of sharks){if(s.dead||s.r>this.r*.95)continue;let d=dist(this.x,this.y,s.x,s.y);if(d<best){best=d;t=s}}this.target=t;if(t){this.a+=(Math.atan2(t.y-this.y,t.x-this.x)-this.a+.5*TAU)%TAU-.5*TAU;this.a+=Math.sin(this.a)*0.01}else if(Math.random()<.015)this.a+=rnd(-.7,.7);this.x+=Math.cos(this.a)*this.speed;this.y+=Math.sin(this.a)*this.speed;this.x=clamp(this.x,this.r,W-this.r);this.y=clamp(this.y,this.r,W-this.r)}
+ draw(cx,cy){if(this.dead)return;let sx=this.x-cx,sy=this.y-cy;if(sx<-180||sx>innerWidth+180||sy<-180||sy>innerHeight+180)return;X.save();X.translate(sx,sy);X.rotate(this.a);let r=this.r;X.fillStyle=this.type==='Hammerhead'?'#5d6572':this.type==='Squid'?'#8d5a9f':'#8d503e';X.beginPath();X.ellipse(0,0,r*1.5,r*.65,0,0,TAU);X.fill();if(this.type==='Hammerhead'){X.fillRect(r*.65,-r*.95,r*.45,r*1.9);X.beginPath();X.moveTo(-r*.9,0);X.lineTo(-r*1.7,-r*.6);X.lineTo(-r*1.7,r*.6);X.closePath();X.fill()}else if(this.type==='Squid'){X.strokeStyle=X.fillStyle;X.lineWidth=r*.12;for(let i=-2;i<=2;i++){X.beginPath();X.moveTo(-r*.7,i*r*.18);X.quadraticCurveTo(-r*1.2,i*r*.35,-r*1.8,i*r*.5);X.stroke()}}else{X.beginPath();X.moveTo(-r*1.1,0);X.lineTo(-r*1.8,-r*.7);X.lineTo(-r*1.8,r*.7);X.closePath();X.fill()}X.restore();X.fillStyle='#ff7777';X.font='10px Arial';X.textAlign='center';X.fillText(this.type,sx,sy-r-7)}
+}
+function makeSwarmer(owner){return{x:owner.x,y:owner.y,a:rnd(0,TAU),r:11,owner,target:null,life:1}}
+function levelFromScore(s){return Math.min(75,1+Math.floor(Math.sqrt(s/90)))}
+function addBubble(x,y){bubbles.push({x,y,r:rnd(1,4),life:rnd(60,130),vx:rnd(-.2,.2),vy:rnd(-.6,-.2)})}
+function reset(){fish=[];sharks=[];predators=[];swarms=[];bubbles=[];decor=[];level=1;nextLevel=120;paused=false;ui.over.classList.add('hidden');ui.up.classList.add('hidden');let p=pos();player=new Shark(W/2,W/2,34,'You',true);player.x=W/2;player.y=W/2;sharks.push(player);for(let i=0;i<AI_COUNT;i++){let q=pos();sharks.push(new Shark(q.x,q.y,rnd(22,95),names[i%names.length]+' '+(i+1),false))}for(let i=0;i<PRED_COUNT;i++)predators.push(new Predator(['Hammerhead','Squid','Lamprey'][i%3]));for(let i=0;i<FISH_COUNT;i++)fish.push(new Fish());for(let i=0;i<100;i++){let p=pos();decor.push({x:p.x,y:p.y,r:rnd(8,32),kind:Math.random()>.5?'coral':'rock'})}for(let i=0;i<35;i++){let p=pos();addBubble(p.x,p.y)}}
+const upgrades=[{n:'BIGGER BITE',d:'+30% bite damage',f:p=>p.bitePower*=1.3},{n:'THICK SKIN',d:'+25 max health and full heal',f:p=>{p.maxHealth+=25;p.health=p.maxHealth}},{n:'FAST FIN',d:'+12% swim speed',f:p=>p.speed*=1.12},{n:'HUNGRY',d:'Food gives 50% more growth',f:p=>p.r+=2},{n:'REGEN',d:'+100% health regeneration',f:p=>p.regen*=2},{n:'SWARMER',d:'Gain a helper fish that hunts prey',f:p=>{p.swarmer++;swarms.push(makeSwarmer(p))}}];
+function showUpgrade(){paused=true;ui.up.classList.remove('hidden');let pool=[...upgrades].sort(()=>Math.random()-.5).slice(0,3);ui.choices.innerHTML='';pool.forEach((u,i)=>{let b=document.createElement('button');b.className='upgrade';b.innerHTML=`<strong>${i+1}. ${u.n}</strong><small>${u.d}</small>`;b.onclick=()=>{u.f(player);ui.up.classList.add('hidden');paused=false;last=performance.now()};b.dataset.index=i;ui.choices.appendChild(b)});window._upgradePool=pool}
+function chooseUpgrade(i){if(!paused||!window._upgradePool?.[i])return;window._upgradePool[i].f(player);ui.up.classList.add('hidden');paused=false;last=performance.now()}
+function update(dt){if(paused)return;for(const f of fish)f.update();for(const s of sharks)if(!s.dead)s.update();for(const p of predators)p.update();
+ for(const s of sharks){if(s.dead)continue;for(const f of fish){if(dist(s.x,s.y,f.x,f.y)<s.r*.72){s.eat(f);break}}for(const o of sharks){if(o===s||o.dead)continue;let d=dist(s.x,s.y,o.x,o.y);if(d<s.r*.6&&s.r>o.r*1.08){s.biteAt(o);break}}for(const p of predators){if(p.dead)continue;let d=dist(s.x,s.y,p.x,p.y);if(d<s.r*.58&&s.r>p.r*1.08){s.biteAt(p);break}if(d<p.r*.48&&p.r>s.r*1.03){s.health-=.18;if(s.me&&s.health<=0){die(p.type);return}}}}
+ for(const p of predators){if(p.dead)continue;for(const s of sharks){if(s.dead)continue;let d=dist(p.x,p.y,s.x,s.y);if(d<p.r*.55&&p.r>s.r*1.03){s.health-=.55;if(s.me&&s.health<=0){die(p.type);return}}}}
+ if(fish.length<FISH_COUNT)for(let i=fish.length;i<FISH_COUNT;i++)fish.push(new Fish());
+ for(let i=swarms.length-1;i>=0;i--){let a=swarms[i];if(!player||!a.owner){swarms.splice(i,1);continue}let t=a.target;if(!t||t.dead||dist(a.x,a.y,t.x,t.y)>500){t=null;let bd=350;for(const f of fish){let d=dist(a.x,a.y,f.x,f.y);if(d<bd){bd=d;t=f}}a.target=t}if(t){let ang=Math.atan2(t.y-a.y,t.x-a.x);a.a+=Math.atan2(Math.sin(ang-a.a),Math.cos(ang-a.a))*.08}else a.a+=.02;a.x+=Math.cos(a.a)*3.5;a.y+=Math.sin(a.a)*3.5;if(t&&dist(a.x,a.y,t.x,t.y)<a.r+4){player.score+=15;player.r+=.03;let fi=fish.indexOf(t);if(fi>=0)fish.splice(fi,1)}}
+ for(const b of bubbles){b.x+=b.vx;b.y+=b.vy;b.life--}bubbles=bubbles.filter(b=>b.life>0);if(Math.random()<.12)addBubble(player.x+rnd(-innerWidth,innerWidth),player.y+rnd(-innerHeight,innerHeight));
+ let old=level;level=levelFromScore(player.score);if(level>old){nextLevel*=1.8;showUpgrade()}player.maxHealth=Math.max(player.maxHealth,100+level*2);ui.score.textContent=Math.floor(player.score);ui.level.textContent=level;ui.weight.textContent=Math.floor(player.r);ui.health.style.width=clamp(player.health/player.maxHealth*100,0,100)+'%';ui.energy.style.width=clamp(player.energy/player.maxEnergy*100,0,100)+'%';ui.ht.textContent=Math.floor(player.health);ui.et.textContent=Math.floor(player.energy);leaderboard();}
+function leaderboard(){let a=sharks.filter(s=>!s.dead).sort((x,y)=>y.score-x.score).slice(0,8);ui.board.innerHTML='';a.forEach(s=>{let li=document.createElement('li');li.textContent=`${s.name}  ${Math.floor(s.score)}`;if(s.me)li.className='you';ui.board.appendChild(li)})}
+function die(by){if(!running)return;running=false;paused=false;ui.killer.textContent=by==='Hammerhead'?'A Hammerhead crushed you.':by==='Squid'?'The giant squid got you.':by==='Lamprey'?'A Lamprey drained you.':'A larger shark got you.';ui.finalScore.textContent=Math.floor(player.score);ui.finalLevel.textContent=level;ui.over.classList.remove('hidden')}
+ui.restart.onclick=()=>{reset();running=true;last=performance.now();requestAnimationFrame(loop)};
+function drawOcean(cx,cy){let g=X.createLinearGradient(0,0,0,innerHeight);g.addColorStop(0,'#0a5076');g.addColorStop(.5,'#063451');g.addColorStop(1,'#021827');X.fillStyle=g;X.fillRect(0,0,innerWidth,innerHeight);X.strokeStyle='rgba(100,210,235,.045)';X.lineWidth=1;let grid=180;for(let x=(( -cx)%grid+grid)%grid;x<innerWidth;x+=grid){X.beginPath();X.moveTo(x,0);X.lineTo(x,innerHeight);X.stroke()}for(let y=(( -cy)%grid+grid)%grid;y<innerHeight;y+=grid){X.beginPath();X.moveTo(0,y);X.lineTo(innerWidth,y);X.stroke()}for(const d of decor){let x=d.x-cx,y=d.y-cy;if(x<-100||x>innerWidth+100||y<-100||y>innerHeight+100)continue;if(d.kind==='rock'){X.fillStyle='rgba(15,64,72,.6)';X.beginPath();X.arc(x,y,d.r,0,TAU);X.fill()}else{X.strokeStyle='rgba(22,144,122,.45)';X.lineWidth=4;for(let k=-1;k<=1;k++){X.beginPath();X.moveTo(x+k*5,y+d.r*.6);X.quadraticCurveTo(x+k*10,y,x+k*3,y-d.r);X.stroke()}}}for(const b of bubbles){let x=b.x-cx,y=b.y-cy;if(x<0||x>innerWidth||y<0||y>innerHeight)continue;X.strokeStyle=`rgba(190,245,255,${Math.min(.5,b.life/120)})`;X.beginPath();X.arc(x,y,b.r,0,TAU);X.stroke()}}
+function draw(){let cx=player.x-innerWidth/2,cy=player.y-innerHeight/2;drawOcean(cx,cy);for(const f of fish)f.draw(cx,cy);for(const p of predators)p.draw(cx,cy);for(const s of swarms){let x=s.x-cx,y=s.y-cy;X.save();X.translate(x,y);X.rotate(s.a);X.fillStyle='#efc86a';X.beginPath();X.ellipse(0,0,16,9,0,0,TAU);X.fill();X.restore()}for(const s of sharks)if(!s.dead)s.draw(cx,cy)}
+function loop(t){if(!running)return;let dt=Math.min(33,t-last);last=t;update(dt);draw();requestAnimationFrame(loop)}reset();running=true;requestAnimationFrame(loop);
 })();
