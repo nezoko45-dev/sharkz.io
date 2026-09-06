@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <title>Sharkz.io</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="gameCanvas"></canvas>
+
+  <div id="hud">
+    <div class="hud-left">
+      <div class="brand">SHARKZ<span>.IO</span></div>
+      <div class="stat"><b>LEVEL</b><span id="level">1</span></div>
+      <div class="stat"><b>SCORE</b><span id="score">0</span></div>
+      <div class="stat"><b>WEIGHT</b><span id="weight">50</span></div>
+      <div class="bars">
+        <label>HEALTH <i id="healthText">100</i></label><div class="bar"><div id="healthBar"></div></div>
+        <label>ENERGY <i id="energyText">100</i></label><div class="bar energy"><div id="energyBar"></div></div>
+      </div>
+    </div>
+    <div class="hud-right">
+      <div id="leaderboard"><h3>TOP SHARKZ</h3><ol id="leaderboard-list"></ol></div>
+    </div>
+  </div>
+
+  <div id="hint">MOVE WITH YOUR MOUSE &nbsp; • &nbsp; CLICK / SPACE TO BITE</div>
+
+  <div id="upgradePanel" class="panel hidden">
+    <div class="panel-card">
+      <h1>LEVEL UP!</h1>
+      <p>Choose an upgrade</p>
+      <div id="upgradeChoices"></div>
+    </div>
+  </div>
+
+  <div id="game-over-screen" class="panel hidden">
+    <div class="panel-card gameover">
+      <div class="dead">YOU WERE EATEN</div>
+      <h1 id="killerText">A larger shark got you.</h1>
+      <p>Score <b id="finalScore">0</b> &nbsp; • &nbsp; Level <b id="finalLevel">1</b></p>
+      <button id="restart-btn">RESPAWN</button>
+    </div>
+  </div>
+
+  <script src="Game.js"></script>
+</body>
+</html>
