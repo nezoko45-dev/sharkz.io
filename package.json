@@ -1,17 +1,18 @@
 {
   "name": "sharkz-io-server",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
+  "type": "commonjs",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build:exe": "npx --yes pkg@5.8.1 server.js --targets node16-win-x64 --output SharkzServer.exe"
+    "build:exe": "npx @yao-pkg/pkg server.js --targets node22-win-x64 --output SharkzServer.exe"
   },
   "dependencies": {
     "ws": "^8.18.3"
   },
   "devDependencies": {
-    "pkg": "5.8.1"
+    "@yao-pkg/pkg": "^6.9.0"
   },
   "pkg": {
     "assets": [
