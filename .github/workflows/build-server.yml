@@ -1,4 +1,4 @@
-name: Build Sharkz Server Bundle
+name: Build Sharkz Server EXE
 
 on:
   workflow_dispatch:
@@ -15,12 +15,12 @@ on:
       - '*.webp'
       - '*.gif'
       - '*.svg'
+      - 'start-sharkz.bat'
       - '.github/workflows/build-server.yml'
 
 jobs:
   build:
     runs-on: windows-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,69 +28,51 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
 
       - name: Install dependencies
-        shell: pwsh
         run: npm install
 
-      - name: Build Windows EXE
-        shell: pwsh
-        run: npm run build:exe
+      - name: Build SharkzServer.exe
+        run: npx @yao-pkg/pkg server.js --targets node22-win-x64 --output SharkzServer.exe
 
-      - name: Assemble complete portable bundle
+      - name: Package complete Windows bundle
         shell: pwsh
         run: |
-          if (Test-Path dist) { Remove-Item dist -Recurse -Force }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-
-          Copy-Item SharkzServer.exe dist\SharkzServer.exe -Force
-          Copy-Item server.js dist\server.js -Force
-          Copy-Item package.json dist\package.json -Force
-          Copy-Item index.html dist\index.html -Force
-          Copy-Item Game.js dist\Game.js -Force
-          Copy-Item style.css dist\style.css -Force
+          Copy-Item SharkzServer.exe dist/SharkzServer.exe
+          Copy-Item index.html dist/index.html
+          Copy-Item Game.js dist/Game.js
+          Copy-Item style.css dist/style.css
+          Copy-Item server.js dist/server.js
+          Copy-Item package.json dist/package.json
+          Copy-Item start-sharkz.bat dist/start-sharkz.bat
 
           Get-ChildItem -File | Where-Object {
             $_.Extension.ToLowerInvariant() -in @('.jpg','.jpeg','.png','.webp','.gif','.svg')
           } | ForEach-Object {
-            Copy-Item $_.FullName dist\ -Force
+            Copy-Item $_.FullName dist/ -Force
           }
 
-          if (Test-Path package-lock.json) {
-            Copy-Item package-lock.json dist\package-lock.json -Force
-          }
+          @'
+          SHARKZ.IO WINDOWS MULTIPLAYER
 
-          if (Test-Path node_modules\ws) {
-            New-Item -ItemType Directory -Force -Path dist\node_modules\ws | Out-Null
-            Copy-Item node_modules\ws\* dist\node_modules\ws\ -Recurse -Force
-          }
+          Easiest way to play:
+          1. Double-click start-sharkz.bat.
+          2. The Sharkz server starts automatically.
+          3. Your browser opens http://localhost:3000
 
-          @(
-            'Sharkz.io Windows Portable Bundle'
-            ''
-            'Start SharkzServer.exe.'
-            'Then open http://localhost:3000 in your browser.'
-            ''
-            'Included:'
-            '- SharkzServer.exe'
-            '- server.js'
-            '- index.html'
-            '- Game.js'
-            '- style.css'
-            '- all repository image assets'
-            '- package.json and package-lock.json when generated'
-            '- node_modules/ws for running server.js directly'
-          ) | Set-Content dist\README.txt -Encoding UTF8
+          You can also run SharkzServer.exe directly and then open:
+          http://localhost:3000
 
-          Write-Host 'Bundle contents:'
-          Get-ChildItem dist -Recurse | Select-Object FullName
+          LAN players can use:
+          http://YOUR-PC-IP:3000
+          '@ | Set-Content dist/README.txt -Encoding UTF8
 
-      - name: Create ZIP
+      - name: Create complete ZIP
         shell: pwsh
         run: |
-          if (Test-Path SharkzServer-Windows.zip) { Remove-Item SharkzServer-Windows.zip -Force }
-          Compress-Archive -Path dist\* -DestinationPath SharkzServer-Windows.zip -CompressionLevel Optimal
+          Compress-Archive -Path dist/* -DestinationPath SharkzServer-Windows.zip -CompressionLevel Optimal
           if (!(Test-Path SharkzServer-Windows.zip)) { throw 'ZIP was not created.' }
 
       - name: Upload complete Sharkz bundle
