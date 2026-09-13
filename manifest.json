@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Sharkz.io",
+  "version": "1.0.0",
+  "description": "Sharkz.io multiplayer shark game.",
+  "action": {
+    "default_title": "Play Sharkz.io",
+    "default_popup": "index.html"
+  },
+  "permissions": [],
+  "host_permissions": [
+    "ws://localhost:3000/*",
+    "http://localhost:3000/*"
+  ]
+}
