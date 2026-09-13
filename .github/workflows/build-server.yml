@@ -1,10 +1,17 @@
-name: Build Sharkz Server EXE
+name: Build Sharkz Server Bundle
 on:
   workflow_dispatch:
   push:
     paths:
       - 'server.js'
       - 'package.json'
+      - 'package-lock.json'
+      - 'index.html'
+      - 'Game.js'
+      - 'style.css'
+      - '*.jpg'
+      - '*.jpeg'
+      - '*.png'
       - '.github/workflows/build-server.yml'
 jobs:
   build:
@@ -14,10 +21,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 18
-      - run: npm install
-      - run: npm run build:exe
-      - name: Upload SharkzServer.exe
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Build server EXE
+        run: npm run build:exe
+      - name: Assemble portable Sharkz bundle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item SharkzServer.exe dist\
+          Copy-Item server.js dist\
+          Copy-Item package.json dist\
+          if (Test-Path package-lock.json) { Copy-Item package-lock.json dist\ }
+          Copy-Item index.html dist\
+          Copy-Item Game.js dist\
+          Copy-Item style.css dist\
+          Get-ChildItem -File | Where-Object { $_.Extension -in '.jpg','.jpeg','.png','.webp','.gif','.svg' } | Copy-Item -Destination dist\
+          npm pack --pack-destination dist | Out-Null
+          if (Test-Path node_modules\ws) {
+            New-Item -ItemType Directory -Force -Path dist\node_modules\ws | Out-Null
+            Copy-Item node_modules\ws\* dist\node_modules\ws\ -Recurse -Force
+          }
+          Set-Content -Path dist\README.txt -Value @'
+Sharkz.io portable Windows server bundle
+
+Files included:
+- SharkzServer.exe - standalone Windows server
+- server.js - source server fallback
+- index.html, Game.js, style.css - browser game files
+- image assets from the repository
+- package.json / package-lock.json - dependency metadata
+- node_modules/ws - runtime WebSocket dependency for source-server fallback
+
+Run SharkzServer.exe and open http://localhost:3000 in a browser.
+'@
+      - name: Create ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist\* -DestinationPath SharkzServer-Windows.zip -Force
+      - name: Upload complete Sharkz bundle
         uses: actions/upload-artifact@v4
         with:
           name: SharkzServer-Windows
-          path: SharkzServer.exe
+          path: SharkzServer-Windows.zip
+          if-no-files-found: error
