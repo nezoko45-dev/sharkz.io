@@ -1,5 +1,8 @@
 const http=require('http'),fs=require('fs'),path=require('path'),WebSocket=require('ws');
 const PORT=Number(process.env.PORT||3000),HOST=process.env.HOST||'0.0.0.0',WORLD=3000,TICK=1000/30;
+// When packaged with @yao-pkg/pkg, serve browser files from the folder next to the EXE.
+// In normal Node development, serve them from the repository folder.
+const ROOT=process.pkg?path.dirname(process.execPath):__dirname;
 const players=new Map(),fish=[],hammerheads=[],lampreys=[],swarmers=[];
 const rand=(a,b)=>a+Math.random()*(b-a),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),d2=(a,b)=>{const x=a.x-b.x,y=a.y-b.y;return x*x+y*y};
 const send=(ws,d)=>ws.readyState===WebSocket.OPEN&&ws.send(JSON.stringify(d));
@@ -7,7 +10,7 @@ for(let i=0;i<350;i++)fish.push({id:`f${i}`,x:rand(20,WORLD-20),y:rand(20,WORLD-
 for(let i=0;i<12;i++)hammerheads.push({id:`h${i}`,x:rand(100,WORLD-100),y:rand(100,WORLD-100),vx:0,vy:0,r:22,speed:48,angle:0});
 for(let i=0;i<18;i++)lampreys.push({id:`l${i}`,x:rand(100,WORLD-100),y:rand(100,WORLD-100),vx:0,vy:0,r:13,speed:55,phase:rand(0,Math.PI*2),target:null,angle:0});
 for(let i=0;i<24;i++)swarmers.push({id:`s${i}`,x:rand(100,WORLD-100),y:rand(100,WORLD-100),vx:0,vy:0,r:9,speed:62,target:null,phase:rand(0,Math.PI*2),angle:0});
-function spawn(ws){const id=Math.random().toString(36).slice(2,10);const p={id,name:`Shark-${id.slice(0,4)}`,x:rand(200,WORLD-200),y:rand(200,WORLD-200),vx:0,vy:0,r:18,weight:25,level:1,xp:0,nextXp:25,health:100,maxHealth:100,angle:0,dead:false,respawnAt:0,attack:0,input:{x:0,y:0,boost:false,bite:false},ws};players.set(id,p);return p}
+function spawnPlayer(ws){const id=Math.random().toString(36).slice(2,10);const p={id,name:`Shark-${id.slice(0,4)}`,x:rand(200,WORLD-200),y:rand(200,WORLD-200),vx:0,vy:0,r:18,weight:25,level:1,xp:0,nextXp:25,health:100,maxHealth:100,angle:0,dead:false,respawnAt:0,attack:0,input:{x:0,y:0,boost:false,bite:false},ws};players.set(id,p);return p}
 function xp(p,n){p.xp+=n;while(p.xp>=p.nextXp){p.xp-=p.nextXp;p.level++;p.nextXp=Math.floor(p.nextXp*1.25);p.maxHealth+=5;p.health=p.maxHealth}}
 function grow(p,n){p.weight+=n;p.r=14+Math.sqrt(p.weight)*1.35}
 function kill(v,k){if(v.dead)return;v.dead=true;v.health=0;v.respawnAt=Date.now()+2500;if(k&&k!==v){xp(k,Math.max(10,Math.floor(v.weight*.9)));grow(k,Math.max(2,Math.floor(v.weight*.16)))}}
@@ -15,11 +18,9 @@ function nearest(x,y,max=Infinity){let b=null,bd=max*max;for(const p of players.
 function move(e,dt){e.x=clamp(e.x+e.vx*dt,e.r,WORLD-e.r);e.y=clamp(e.y+e.vy*dt,e.r,WORLD-e.r)}
 function refill(){while(fish.length<350)fish.push({id:`f${Date.now()}-${Math.random()}`,x:rand(20,WORLD-20),y:rand(20,WORLD-20),r:rand(2,5),xp:1})}
 const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp'};
-const httpServer=http.createServer((req,res)=>{let u=decodeURIComponent((req.url||'/').split('?')[0]);if(u==='/')u='/index.html';const file=path.join(__dirname,u);if(!file.startsWith(__dirname))return res.writeHead(403).end();fs.readFile(file,(e,data)=>{if(e)return res.writeHead(404).end('Not found');res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(data)})});
+const httpServer=http.createServer((req,res)=>{let u=decodeURIComponent((req.url||'/').split('?')[0]);if(u==='/')u='/index.html';const file=path.resolve(ROOT,'.'+u);if(!file.startsWith(path.resolve(ROOT)+path.sep))return res.writeHead(403).end();fs.readFile(file,(e,data)=>{if(e)return res.writeHead(404).end('Not found');res.writeHead(200,{'Content-Type':mime[path.extname(file)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(data)})});
 const wss=new WebSocket.Server({server:httpServer});
-wss.on('connection',ws=>{const p=spawn(ws);send(ws,{type:'welcome',id:p.id,world:WORLD});ws.on('message',raw=>{try{const m=JSON.parse(raw);if(m.type==='input'&&!p.dead){p.input.x=clamp(Number(m.x)||0,-1,1);p.input.y=clamp(Number(m.y)||0,-1,1);p.input.boost=!!m.boost;p.input.bite=!!m.bite}}catch{}});ws.on('close',()=>players.delete(p.id))});
-function spawn(ws){return spawnPlayer(ws)}
-function spawnPlayer(ws){const id=Math.random().toString(36).slice(2,10);const p={id,name:`Shark-${id.slice(0,4)}`,x:rand(200,WORLD-200),y:rand(200,WORLD-200),vx:0,vy:0,r:18,weight:25,level:1,xp:0,nextXp:25,health:100,maxHealth:100,angle:0,dead:false,respawnAt:0,attack:0,input:{x:0,y:0,boost:false,bite:false},ws};players.set(id,p);return p}
+wss.on('connection',ws=>{const p=spawnPlayer(ws);send(ws,{type:'welcome',id:p.id,world:WORLD});ws.on('message',raw=>{try{const m=JSON.parse(raw);if(m.type==='input'&&!p.dead){p.input.x=clamp(Number(m.x)||0,-1,1);p.input.y=clamp(Number(m.y)||0,-1,1);p.input.boost=!!m.boost;p.input.bite=!!m.bite}}catch{}});ws.on('close',()=>players.delete(p.id))});
 let last=Date.now();setInterval(()=>{const now=Date.now(),dt=Math.min(.08,(now-last)/1000);last=now;
 for(const p of players.values()){if(p.dead){if(now>=p.respawnAt){p.dead=false;p.x=rand(200,WORLD-200);p.y=rand(200,WORLD-200);p.health=p.maxHealth}continue}const ix=p.input.x,iy=p.input.y,len=Math.hypot(ix,iy)||1,spd=p.input.boost?115:78;p.vx+=(ix/len*spd-p.vx)*Math.min(1,dt*7);p.vy+=(iy/len*spd-p.vy)*Math.min(1,dt*7);if(Math.abs(ix)+Math.abs(iy)>.05)p.angle=Math.atan2(iy,ix);move(p,dt);p.attack=Math.max(0,p.attack-dt);
 for(let i=fish.length-1;i>=0;i--){const f=fish[i];if(d2(p,f)<(p.r+f.r)**2){fish.splice(i,1);grow(p,f.xp*1.5);xp(p,f.xp*3)}}
