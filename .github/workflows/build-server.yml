@@ -66,22 +66,22 @@ jobs:
             Copy-Item node_modules\ws\* dist\node_modules\ws\ -Recurse -Force
           }
 
-          @'
-Sharkz.io Windows Portable Bundle
-
-Start SharkzServer.exe.
-Then open http://localhost:3000 in your browser.
-
-Included:
-- SharkzServer.exe
-- server.js
-- index.html
-- Game.js
-- style.css
-- all repository image assets
-- package.json and package-lock.json when generated
-- node_modules/ws for running server.js directly
-'@ | Set-Content dist\README.txt -Encoding UTF8
+          @(
+            'Sharkz.io Windows Portable Bundle'
+            ''
+            'Start SharkzServer.exe.'
+            'Then open http://localhost:3000 in your browser.'
+            ''
+            'Included:'
+            '- SharkzServer.exe'
+            '- server.js'
+            '- index.html'
+            '- Game.js'
+            '- style.css'
+            '- all repository image assets'
+            '- package.json and package-lock.json when generated'
+            '- node_modules/ws for running server.js directly'
+          ) | Set-Content dist\README.txt -Encoding UTF8
 
           Write-Host 'Bundle contents:'
           Get-ChildItem dist -Recurse | Select-Object FullName
