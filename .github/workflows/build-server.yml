@@ -1,67 +1,102 @@
 name: Build Sharkz Server Bundle
+
 on:
   workflow_dispatch:
   push:
     paths:
       - 'server.js'
       - 'package.json'
-      - 'package-lock.json'
       - 'index.html'
       - 'Game.js'
       - 'style.css'
       - '*.jpg'
       - '*.jpeg'
       - '*.png'
+      - '*.webp'
+      - '*.gif'
+      - '*.svg'
       - '.github/workflows/build-server.yml'
+
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 18
-          cache: npm
+
       - name: Install dependencies
+        shell: pwsh
         run: npm install
-      - name: Build server EXE
+
+      - name: Build Windows EXE
+        shell: pwsh
         run: npm run build:exe
-      - name: Assemble portable Sharkz bundle
+
+      - name: Assemble complete portable bundle
         shell: pwsh
         run: |
+          if (Test-Path dist) { Remove-Item dist -Recurse -Force }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item SharkzServer.exe dist\
-          Copy-Item server.js dist\
-          Copy-Item package.json dist\
-          if (Test-Path package-lock.json) { Copy-Item package-lock.json dist\ }
-          Copy-Item index.html dist\
-          Copy-Item Game.js dist\
-          Copy-Item style.css dist\
-          Get-ChildItem -File | Where-Object { $_.Extension -in '.jpg','.jpeg','.png','.webp','.gif','.svg' } | Copy-Item -Destination dist\
-          npm pack --pack-destination dist | Out-Null
+
+          Copy-Item SharkzServer.exe dist\SharkzServer.exe -Force
+          Copy-Item server.js dist\server.js -Force
+          Copy-Item package.json dist\package.json -Force
+          Copy-Item index.html dist\index.html -Force
+          Copy-Item Game.js dist\Game.js -Force
+          Copy-Item style.css dist\style.css -Force
+
+          Get-ChildItem -File | Where-Object {
+            $_.Extension.ToLowerInvariant() -in @('.jpg','.jpeg','.png','.webp','.gif','.svg')
+          } | ForEach-Object {
+            Copy-Item $_.FullName dist\ -Force
+          }
+
+          if (Test-Path package-lock.json) {
+            Copy-Item package-lock.json dist\package-lock.json -Force
+          }
+
           if (Test-Path node_modules\ws) {
             New-Item -ItemType Directory -Force -Path dist\node_modules\ws | Out-Null
             Copy-Item node_modules\ws\* dist\node_modules\ws\ -Recurse -Force
           }
-          Set-Content -Path dist\README.txt -Value @'
-Sharkz.io portable Windows server bundle
 
-Files included:
-- SharkzServer.exe - standalone Windows server
-- server.js - source server fallback
-- index.html, Game.js, style.css - browser game files
-- image assets from the repository
-- package.json / package-lock.json - dependency metadata
-- node_modules/ws - runtime WebSocket dependency for source-server fallback
+          @'
+Sharkz.io Windows Portable Bundle
 
-Run SharkzServer.exe and open http://localhost:3000 in a browser.
-'@
+Start SharkzServer.exe.
+Then open http://localhost:3000 in your browser.
+
+Included:
+- SharkzServer.exe
+- server.js
+- index.html
+- Game.js
+- style.css
+- all repository image assets
+- package.json and package-lock.json when generated
+- node_modules/ws for running server.js directly
+'@ | Set-Content dist\README.txt -Encoding UTF8
+
+          Write-Host 'Bundle contents:'
+          Get-ChildItem dist -Recurse | Select-Object FullName
+
       - name: Create ZIP
         shell: pwsh
-        run: Compress-Archive -Path dist\* -DestinationPath SharkzServer-Windows.zip -Force
+        run: |
+          if (Test-Path SharkzServer-Windows.zip) { Remove-Item SharkzServer-Windows.zip -Force }
+          Compress-Archive -Path dist\* -DestinationPath SharkzServer-Windows.zip -CompressionLevel Optimal
+          if (!(Test-Path SharkzServer-Windows.zip)) { throw 'ZIP was not created.' }
+
       - name: Upload complete Sharkz bundle
         uses: actions/upload-artifact@v4
         with:
           name: SharkzServer-Windows
           path: SharkzServer-Windows.zip
           if-no-files-found: error
+          retention-days: 14
