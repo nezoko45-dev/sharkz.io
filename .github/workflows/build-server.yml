@@ -39,14 +39,20 @@ jobs:
       - name: Package complete Windows bundle
         shell: pwsh
         run: |
+          if (Test-Path dist) { Remove-Item dist -Recurse -Force }
           New-Item -ItemType Directory -Force -Path dist | Out-Null
-          Copy-Item SharkzServer.exe dist/SharkzServer.exe
-          Copy-Item index.html dist/index.html
-          Copy-Item Game.js dist/Game.js
-          Copy-Item style.css dist/style.css
-          Copy-Item server.js dist/server.js
-          Copy-Item package.json dist/package.json
-          Copy-Item start-sharkz.bat dist/start-sharkz.bat
+
+          # Include the generated server under both names so the ZIP always
+          # contains the requested server.exe without requiring an upload.
+          Copy-Item SharkzServer.exe dist/SharkzServer.exe -Force
+          Copy-Item SharkzServer.exe dist/server.exe -Force
+
+          Copy-Item index.html dist/index.html -Force
+          Copy-Item Game.js dist/Game.js -Force
+          Copy-Item style.css dist/style.css -Force
+          Copy-Item server.js dist/server.js -Force
+          Copy-Item package.json dist/package.json -Force
+          Copy-Item start-sharkz.bat dist/start-sharkz.bat -Force
 
           Get-ChildItem -File | Where-Object {
             $_.Extension.ToLowerInvariant() -in @('.jpg','.jpeg','.png','.webp','.gif','.svg')
@@ -62,16 +68,23 @@ jobs:
           2. The Sharkz server starts automatically.
           3. Your browser opens http://localhost:3000
 
-          You can also run SharkzServer.exe directly and then open:
+          You can also run server.exe directly and then open:
           http://localhost:3000
+
+          SharkzServer.exe is included as the original generated server name.
+          server.exe is included as the simple server launcher name.
 
           LAN players can use:
           http://YOUR-PC-IP:3000
           '@ | Set-Content dist/README.txt -Encoding UTF8
 
+          Write-Host 'Final ZIP contents:'
+          Get-ChildItem dist -Recurse | Select-Object FullName
+
       - name: Create complete ZIP
         shell: pwsh
         run: |
+          if (Test-Path SharkzServer-Windows.zip) { Remove-Item SharkzServer-Windows.zip -Force }
           Compress-Archive -Path dist/* -DestinationPath SharkzServer-Windows.zip -CompressionLevel Optimal
           if (!(Test-Path SharkzServer-Windows.zip)) { throw 'ZIP was not created.' }
 
